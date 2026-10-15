@@ -1,0 +1,255 @@
+// Schéma Prisma — JobSwipe
+//
+// Principe de conception : les offres sont partagées entre tous les
+// utilisateurs (une offre vue par dix personnes n'est stockée qu'une fois),
+// mais les DÉCISIONS sont strictement personnelles. C'est ce qui permet de
+// mutualiser la collecte tout en gardant un swipe privé.
+//
+// L'authentification est déléguée à Supabase Auth : la table `User` ne
+// stocke donc pas de mot de passe, seulement une référence à `auth.users`
+// via `supabaseId`.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ---------------------------------------------------------------------
+//  Utilisateurs et profil
+// ---------------------------------------------------------------------
+
+model User {
+  id         String   @id @default(cuid())
+  // Identifiant du compte Supabase Auth (auth.users.id)
+  supabaseId String   @unique
+  email      String   @unique
+  nom        String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  cv          Cv?
+  preferences Preferences?
+  swipes      Swipe[]
+  applications Application[]
+
+  @@map("users")
+}
+
+/// CV de l'utilisateur : texte extrait + version structurée.
+///
+/// Le PDF brut vit dans Supabase Storage ; on ne conserve ici que le texte
+/// extrait et la structuration, qui sont ce dont le scoring a besoin.
+model Cv {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Chemin du fichier dans Supabase Storage
+  fichierChemin String?
+  fichierNom    String?
+  texteBrut     String   @db.Text
+
+  /// Compétences détectées, normalisées (minuscules)
+  competences   String[]
+  /// Nombre d'années d'expérience estimé
+  anneesExperience Int @default(0)
+  /// Postes visés, déduits des titres de poste
+  postesVises   String[]
+  /// Secteurs détectés (defense, fintech, sante...)
+  secteurs      String[]
+  /// Niveaux de séniorité acceptables
+  seniorites    String[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("cvs")
+}
+
+/// Préférences de recherche : c'est ce qui pilote la collecte d'offres.
+model Preferences {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Mots-clés recherchés (ex. ["ingénieur ia", "lead ia", "ml engineer"])
+  motsCles String[]
+  /// Codes INSEE des communes visées (ex. ["75056", "57463"])
+  communes String[]
+  /// Rayon en km autour de chaque commune
+  rayonKm  Int      @default(35)
+  /// Types de contrat acceptés (codes France Travail : CDI, CDD, MIS...)
+  contrats String[] @default(["CDI"])
+  /// Salaire annuel minimum en euros (null = pas de filtre)
+  salaireMin Int?
+  /// Temps plein uniquement
+  tempsPlein Boolean @default(true)
+  /// Exclure les offres dont le titre contient ces mots
+  exclusionsTitres String[] @default([])
+  /// Exclure les offres dont la description contient ces mots
+  exclusionsDescription String[] @default([])
+
+  /// Score minimum pour qu'une offre soit proposée au swipe
+  scoreMinimum Int @default(50)
+  /// Nombre maximum d'offres collectées par cycle
+  limiteCollecte Int @default(300)
+
+  updatedAt DateTime @updatedAt
+
+  @@map("preferences")
+}
+
+// ---------------------------------------------------------------------
+//  Offres (partagées) 
+// ---------------------------------------------------------------------
+
+/// Une offre d'emploi. `sourceId` est l'identifiant chez le fournisseur
+/// (France Travail, Adzuna...) : c'est la clé de déduplication.
+model Offer {
+  id       String @id @default(cuid())
+  /// Fournisseur : "francetravail", "adzuna"
+  source   String
+  /// Identifiant chez le fournisseur
+  sourceId String
+  /// URL de l'offre chez le fournisseur
+  url      String
+
+  titre      String
+  entreprise String @default("Entreprise non précisée")
+  lieu       String?
+  /// Latitude/longitude, pour un futur tri par proximité
+  latitude   Float?
+  longitude  Float?
+
+  contrat     String?
+  salaire     String?
+  /// Nature du contrat telle que fournie (CDI, CDD...)
+  natureContrat String?
+
+  /// Description complète, utilisée pour le scoring et l'affichage
+  description String @db.Text
+  /// Compétences requises telles que listées par la source
+  competences String[]
+
+  /// Métadonnées utiles au tri
+  experienceLibelle String?
+  secteurActivite   String?
+  trancheEffectif   String?
+  qualification     String?
+
+  dateCreation     DateTime?
+  dateActualisation DateTime?
+  /// Date à laquelle l'offre a été vue pour la dernière fois
+  vueLe DateTime @default(now())
+
+  /// Empreinte de la description : permet de détecter une modification
+  empreinte String?
+
+  swipes       Swipe[]
+  applications Application[]
+
+  @@unique([source, sourceId])
+  @@index([dateActualisation])
+  @@index([source])
+  @@map("offers")
+}
+
+// ---------------------------------------------------------------------
+//  Décisions de l'utilisateur
+// ---------------------------------------------------------------------
+
+enum SwipeDecision {
+  LIKE
+  PASS
+  FAVORI
+}
+
+model Swipe {
+  id      String @id @default(cuid())
+  userId  String
+  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  offerId String
+  offer   Offer  @relation(fields: [offerId], references: [id], onDelete: Cascade)
+
+  decision SwipeDecision
+  /// Score calculé au moment du swipe : c'est ce qui permet de trier la
+  /// file d'attente sans recalculer.
+  score    Float
+  /// Détail du score (titre, compétences, séniorité, secteur)
+  details  Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, offerId])
+  @@index([userId, decision])
+  @@map("swipes")
+}
+
+// ---------------------------------------------------------------------
+//  Suivi des candidatures
+// ---------------------------------------------------------------------
+
+enum ApplicationStatut {
+  A_POSTULER
+  EN_ATTENTE
+  ENVOYEE
+  RELANCE
+  REFUS
+  ENTRETIEN
+  OFFRE
+  ABANDON
+}
+
+model Application {
+  id      String @id @default(cuid())
+  userId  String
+  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  offerId String
+  offer   Offer  @relation(fields: [offerId], references: [id], onDelete: Cascade)
+
+  statut ApplicationStatut @default(A_POSTULER)
+  /// Message de motivation utilisé pour cette candidature
+  message String? @db.Text
+  /// Notes libres de l'utilisateur
+  note    String? @db.Text
+
+  postuleLe    DateTime?
+  relanceLe    DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@unique([userId, offerId])
+  @@index([userId, statut])
+  @@map("applications")
+}
+
+// ---------------------------------------------------------------------
+//  Journal de collecte
+// ---------------------------------------------------------------------
+
+/// Trace chaque cycle de récupération d'offres. Sert au diagnostic :
+/// sans ce journal, une panne de l'API se traduit par un swipe vide sans
+/// explication.
+model CollecteLog {
+  id     String @id @default(cuid())
+  source String
+  /// Nombre d'offres reçues de l'API
+  recues     Int @default(0)
+  /// Nombre de nouvelles offres insérées
+  nouvelles  Int @default(0)
+  /// Nombre d'offres mises à jour
+  maj        Int @default(0)
+  /// Message d'erreur éventuel
+  erreur     String? @db.Text
+  dureeMs    Int?
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+  @@map("collecte_logs")
+}

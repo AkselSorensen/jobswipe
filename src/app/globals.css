@@ -1,26 +1,136 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* ---------------------------------------------------------------------
+   JobSwipe — thème sombre
+   ---------------------------------------------------------------------
+   Palette alignée sur l'outil local (fond #0a0e13, cartes #0e141c) :
+   l'utilisateur qui migre d'un outil à l'autre ne perd pas ses repères.
+   --------------------------------------------------------------------- */
+
+@theme {
+  --color-fond: #0a0e13;
+  --color-fond-carte: #0e141c;
+  --color-fond-panneau: #0b1016;
+  --color-ligne: #1e2833;
+  --color-ligne-forte: #2b3a4a;
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+html,
+body {
+  background: #0a0e13;
+  color: #e7eef5;
+  font-family: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+/* Barres de défilement discrètes, cohérentes avec le thème */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #22303e;
+  border-radius: 8px;
+  border: 2px solid #0a0e13;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #2e3f52;
+}
+
+/* Sélection de texte */
+::selection {
+  background: rgba(16, 185, 129, 0.25);
+  color: #e7eef5;
+}
+
+/* ---------------------------------------------------------------------
+   Animations du swipe
+   --------------------------------------------------------------------- */
+
+/* Sortie d'une carte vers la droite (offre retenue) */
+@keyframes sortie-droite {
+  to {
+    transform: translateX(130%) rotate(18deg);
+    opacity: 0;
+  }
+}
+@keyframes sortie-gauche {
+  to {
+    transform: translateX(-130%) rotate(-18deg);
+    opacity: 0;
+  }
+}
+@keyframes sortie-haut {
+  to {
+    transform: translateY(-120%) scale(0.92);
+    opacity: 0;
+  }
+}
+/* Entrée d'une nouvelle carte */
+@keyframes entree-carte {
+  from {
+    transform: scale(0.94) translateY(16px);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1) translateY(0);
+    opacity: 1;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+.anim-sortie-droite {
+  animation: sortie-droite 0.32s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+.anim-sortie-gauche {
+  animation: sortie-gauche 0.32s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+.anim-sortie-haut {
+  animation: sortie-haut 0.32s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+.anim-entree {
+  animation: entree-carte 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Apparition en fondu, pour les messages et les listes */
+@keyframes fondu {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.anim-fondu {
+  animation: fondu 0.22s ease-out;
+}
+
+/* Pulsation discrète, pour l'indicateur de chargement */
+@keyframes pulsation {
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.anim-pulsation {
+  animation: pulsation 1.4s ease-in-out infinite;
+}
+
+/* Respect des préférences d'accessibilité : on désactive tout mouvement */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
