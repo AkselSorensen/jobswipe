@@ -124,7 +124,8 @@ async function main() {
   console.log("\n5. Création d'un utilisateur de test");
   const utilisateur = await prisma.user.create({
     data: {
-      supabaseId: "test-e2e-supabase-id-" + Date.now(),
+      // Hash factice : ce compte de test ne sert pas à se connecter
+      passwordHash: "test-e2e-non-connectable",
       email: EMAIL_TEST,
       nom: "Test E2E",
       cv: {

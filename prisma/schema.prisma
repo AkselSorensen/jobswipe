@@ -5,9 +5,8 @@
 // mais les DÉCISIONS sont strictement personnelles. C'est ce qui permet de
 // mutualiser la collecte tout en gardant un swipe privé.
 //
-// L'authentification est déléguée à Supabase Auth : la table `User` ne
-// stocke donc pas de mot de passe, seulement une référence à `auth.users`
-// via `supabaseId`.
+// Authentification maison : mot de passe haché (scrypt) dans `User`, sessions
+// stockées dans `Session` (jeton haché, jamais le jeton brut).
 
 generator client {
   provider = "prisma-client-js"
@@ -24,20 +23,37 @@ datasource db {
 // ---------------------------------------------------------------------
 
 model User {
-  id         String   @id @default(cuid())
-  // Identifiant du compte Supabase Auth (auth.users.id)
-  supabaseId String   @unique
-  email      String   @unique
-  nom        String?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  id           String   @id @default(cuid())
+  email        String   @unique
+  /// Hash scrypt au format « sel:clé » (voir lib/auth.ts)
+  passwordHash String
+  nom          String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
-  cv          Cv?
-  preferences Preferences?
-  swipes      Swipe[]
+  sessions     Session[]
+  cv           Cv?
+  preferences  Preferences?
+  swipes       Swipe[]
   applications Application[]
 
   @@map("users")
+}
+
+/// Session de connexion. Le cookie contient un jeton aléatoire ; seul son
+/// empreinte SHA-256 est stockée, pour qu'une fuite de la base ne donne
+/// aucune session utilisable.
+model Session {
+  id        String   @id @default(cuid())
+  /// SHA-256 du jeton présent dans le cookie
+  jetonHash String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expireLe  DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("sessions")
 }
 
 /// CV de l'utilisateur : texte extrait + version structurée.
